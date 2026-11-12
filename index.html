@@ -2,8 +2,12 @@
 <HTML LANG="ES">
     <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>mi sitio</title>
         <link rel="stylesheet" href="css.css">
+        <!-- Librería oficial de Supabase (versión fija) + configuración del proyecto -->
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js"></script>
+        <script src="supabase-config.js"></script>
     </head>
     <body>
         <nav>
@@ -13,5 +17,134 @@
         </nav>
         <h1>Hola, esta es mi primer pagina web</h1>
         <h2>Hola, soy Christopher Johan Lara Diaz y es mi primera pagina</h2>
+
+        <!-- ===================== LOGIN (visible sin sesión) ===================== -->
+        <section id="login" class="card">
+            <h3>Portal · Iniciar sesión</h3>
+            <label for="email">Correo</label>
+            <input id="email" type="email" placeholder="usuario@ejemplo.com" autocomplete="username">
+            <label for="pass">Contraseña</label>
+            <input id="pass" type="password" placeholder="mínimo 6 caracteres" autocomplete="current-password">
+            <div class="acciones">
+                <button id="btn-entrar" onclick="entrar()">Iniciar sesión</button>
+                <button id="btn-registrar" class="secundario" onclick="registrar()">Crear cuenta</button>
+            </div>
+            <p id="m1" class="msg"></p>
+        </section>
+
+        <!-- ===================== PANEL (solo con sesión) ===================== -->
+        <section id="app" class="card" hidden>
+            <div class="barra">
+                <span>Sesión: <strong id="usuario"></strong></span>
+                <button id="btn-salir" class="secundario" onclick="salir()">Cerrar sesión</button>
+            </div>
+
+            <h3>Nueva solicitud</h3>
+            <label for="titulo">Título</label>
+            <input id="titulo" type="text" placeholder="ej: Compra de material">
+            <label for="monto">Monto</label>
+            <input id="monto" type="number" min="0" step="0.01" placeholder="0.00">
+            <div class="acciones">
+                <button id="btn-guardar" onclick="crearSolicitud()">Guardar solicitud</button>
+            </div>
+            <p id="m2" class="msg"></p>
+
+            <h3>Solicitudes</h3>
+            <!-- Módulo 1: se ven las de todos. Cada quien solo las suyas = Módulo 4 -->
+            <table>
+                <thead><tr><th>Título</th><th>Monto</th><th>Usuario</th></tr></thead>
+                <tbody id="lista"></tbody>
+            </table>
+        </section>
+
+        <script>
+            // ---------- utilidades ----------
+            // Lee y limpia el valor de un input
+            const val = id => document.getElementById(id).value.trim();
+
+            // Muestra un mensaje de éxito (ok=true) o error (ok=false)
+            function msg(id, texto, ok){
+                const el = document.getElementById(id);
+                el.textContent = texto;
+                el.className = 'msg ' + (ok ? 'ok' : 'error');
+            }
+
+            // Alterna entre login y panel
+            function mostrarLogin(){
+                document.getElementById('app').hidden = true;
+                document.getElementById('login').hidden = false;
+                document.getElementById('pass').value = '';
+            }
+            async function mostrarApp(){
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return mostrarLogin();          // sesión inválida/expirada
+                document.getElementById('usuario').textContent = user.email;
+                document.getElementById('login').hidden = true;
+                document.getElementById('app').hidden = false;
+                cargarSolicitudes();
+            }
+
+            // ---------- Paso 3: registro e inicio de sesión con Supabase Auth ----------
+            async function registrar(){
+                const { error } = await supabase.auth.signUp({ email: val('email'), password: val('pass') });
+                if (error) return msg('m1', 'Error: ' + error.message, false);
+                msg('m1', 'Cuenta creada. Ya puedes iniciar sesión.', true);
+            }
+            async function entrar(){
+                const { error } = await supabase.auth.signInWithPassword({ email: val('email'), password: val('pass') });
+                // Mensaje genérico: no revela si el correo existe o no
+                if (error) return msg('m1', 'Credenciales incorrectas', false);
+                msg('m1', '', true);
+                mostrarApp();
+            }
+
+            // ---------- Paso 4: solicitudes guardan el correo del usuario ----------
+            async function crearSolicitud(){
+                const titulo = val('titulo');
+                const monto = Number(val('monto'));
+                if (!titulo || !(monto >= 0) || val('monto') === '') return msg('m2', 'Escribe título y monto válido', false);
+
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return mostrarLogin();
+                const { error } = await supabase.from('solicitudes').insert({ titulo, monto, usuario_email: user.email });
+                if (error) return msg('m2', 'Error: ' + error.message, false);
+
+                msg('m2', 'Solicitud guardada', true);
+                document.getElementById('titulo').value = '';
+                document.getElementById('monto').value = '';
+                cargarSolicitudes();
+            }
+
+            // Pinta la tabla con textContent (no innerHTML) para evitar inyección de HTML/JS
+            async function cargarSolicitudes(){
+                const { data, error } = await supabase.from('solicitudes')
+                    .select('titulo, monto, usuario_email').order('id', { ascending: false });
+                const tbody = document.getElementById('lista');
+                tbody.replaceChildren();
+                if (error) return msg('m2', 'Error al cargar: ' + error.message, false);
+                for (const s of data) {
+                    const tr = document.createElement('tr');
+                    for (const v of [s.titulo, Number(s.monto).toFixed(2), s.usuario_email ?? '—']) {
+                        const td = document.createElement('td');
+                        td.textContent = v;
+                        tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                }
+            }
+
+            // ---------- Paso 5: cerrar sesión ----------
+            async function salir(){
+                await supabase.auth.signOut();
+                document.getElementById('lista').replaceChildren();
+                mostrarLogin();
+            }
+
+            // ---------- Paso 4: al cargar, si ya hay sesión se entra directo ----------
+            (async () => {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) mostrarApp();
+            })();
+        </script>
     </body>
 </HTML>
