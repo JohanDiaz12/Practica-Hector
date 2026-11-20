@@ -29,6 +29,10 @@
                 <button id="btn-entrar" onclick="entrar()">Iniciar sesión</button>
                 <button id="btn-registrar" class="secundario" onclick="registrar()">Crear cuenta</button>
             </div>
+            <!-- Alternativa sin contraseña: Supabase envía un enlace de acceso al correo -->
+            <div class="acciones">
+                <button id="btn-enlace" class="secundario" onclick="enviarEnlace()">Enviar enlace de acceso al correo</button>
+            </div>
             <p id="m1" class="msg"></p>
         </section>
 
@@ -97,6 +101,24 @@
                 msg('m1', '', true);
                 mostrarApp();
             }
+
+            // ---------- Acceso por enlace al correo (magic link) ----------
+            // Supabase envía un correo con un enlace; al abrirlo vuelve a esta misma página ya con sesión
+            async function enviarEnlace(){
+                const email = val('email');
+                if (!email) return msg('m1', 'Escribe tu correo', false);
+                const { error } = await supabase.auth.signInWithOtp({
+                    email,
+                    options: { emailRedirectTo: location.origin + location.pathname }
+                });
+                if (error) return msg('m1', 'Error: ' + error.message, false);
+                msg('m1', 'Enlace enviado. Revisa tu correo (y la carpeta de spam).', true);
+            }
+
+            // Al volver desde el enlace del correo, Supabase crea la sesión y avisa aquí
+            supabase.auth.onAuthStateChange((evento) => {
+                if (evento === 'SIGNED_IN' && document.getElementById('app').hidden) mostrarApp();
+            });
 
             // ---------- Paso 4: solicitudes guardan el correo del usuario ----------
             async function crearSolicitud(){
